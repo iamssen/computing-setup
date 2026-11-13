@@ -34,7 +34,7 @@ build_message() {
   local provider
   provider=$(provider_label "${CODEXBAR_PROVIDER:-unknown}")
 
-  # 창 이름(session, weekly 등)과 계정은 있을 때만 덧붙인다.
+  # 창 이름(session, weekly 등)은 있을 때만 덧붙인다.
   local subject=$provider
   if [ -n "${CODEXBAR_WINDOW:-}" ]; then
     subject="$subject ${CODEXBAR_WINDOW}"
@@ -71,9 +71,6 @@ build_message() {
       ;;
   esac
 
-  if [ -n "${CODEXBAR_ACCOUNT:-}" ]; then
-    message="$message [${CODEXBAR_ACCOUNT}]"
-  fi
   printf '%s' "$message"
 }
 
