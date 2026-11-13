@@ -34,6 +34,10 @@ source functions.fish
 | `PUSHOVER_USER` | `pushover` |
 | `PUSHOVER_CHANNEL_<대문자 채널>` | `pushover <채널>`. 채널별 앱 토큰 |
 
+SSH 세션에서 로그인 키체인이 잠겨 있으면 `setup-dagu`, `update-dagu`의 서명이 `errSecInternalComponent`로 실패한다.
+그래서 SSH 세션에서 키체인이 잠겨 있으면 `computing-setup`과 `check-dagu-update`가 먼저
+`security unlock-keychain ~/Library/Keychains/login.keychain-db`를 실행하라고 안내한다.
+
 ## CodexBar hook
 
 [codexbar-hook.sh](codexbar-hook.sh)는 CodexBar의 이벤트(`quota_low`, `quota_reached`, `quota_reset` 등)를

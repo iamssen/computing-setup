@@ -42,6 +42,9 @@ class UpdaterTests(unittest.TestCase):
         self.script = FUNCTION_DIR / "main.sh"
         self.env = dict(os.environ)
         self.env.pop("SERVER", None)
+        # SSH로 접속해 테스트를 돌려도 점검 출력이 달라지지 않게 한다.
+        self.env.pop("SSH_CONNECTION", None)
+        self.env.pop("SSH_TTY", None)
         self.env.update({
             "HOME": str(self.home),
             "PATH": str(self.commands) + ":/usr/bin:/bin:/usr/sbin:/sbin",
@@ -140,7 +143,11 @@ class UpdaterTests(unittest.TestCase):
             print(os.environ.get("TEST_ARCH", "arm64"))
         ''')
         self.make_command("security", r'''
-            import os
+            import os, sys
+            if sys.argv[1] == "show-keychain-info":
+                with open(os.environ["TEST_EVENTS"], "a") as events:
+                    events.write("security:" + " ".join(sys.argv[1:]) + "\n")
+                sys.exit(128 if os.environ.get("TEST_KEYCHAIN_LOCKED") else 0)
             if not os.environ.get("TEST_INVALID_IDENTITY"):
                 print('  1) ' + 'A' * 40 + ' "Apple Development: Fixture"')
             print("  1 valid identities found")
@@ -237,6 +244,43 @@ class UpdaterTests(unittest.TestCase):
         self.assertNotIn("codesign:", self.log())
         self.assertNotIn("launchctl:", self.log())
         self.assertFalse(self.plist.exists())
+
+    def test_check_over_ssh_with_locked_keychain_prints_unlock_first(self):
+        unlock = "[Unlock keychain] security unlock-keychain ~/Library/Keychains/login.keychain-db\n"
+        for ssh in ({"SSH_CONNECTION": "192.168.1.64 50000 192.168.1.10 22"}, {"SSH_TTY": "/dev/ttys001"}):
+            ssh = dict(ssh, TEST_KEYCHAIN_LOCKED="1")
+            with self.subTest(ssh=ssh):
+                self.target.unlink(missing_ok=True)
+                result = self.run_updater("check", SIGNING_IDENTITY="", **ssh)
+                self.assertEqual(result.returncode, 101, result.stderr)
+                self.assertEqual(
+                    result.stdout,
+                    unlock + "[Setup] setup-dagu 0.0.0.0 8040\n[Setup] setup-dagu 127.0.0.1 8040\n",
+                )
+
+                self.install_old()
+                result = self.run_updater("check", SIGNING_IDENTITY="", **ssh)
+                self.assertEqual(result.returncode, 100, result.stderr)
+                self.assertEqual(result.stdout, unlock + "[Update v2.25.0 → " + LATEST + "] update-dagu\n")
+
+                self.install_old(LATEST)
+                result = self.run_updater("check", SIGNING_IDENTITY="", **ssh)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertNotIn("unlock-keychain", result.stdout)
+
+    def test_check_skips_unlock_when_keychain_is_open_or_not_ssh(self):
+        # 화면 로그인 세션에서는 잠금 해제 창이 뜰 수 있으므로 키체인을 조회하지도 않아야 한다.
+        cases = (
+            ({"SSH_TTY": "/dev/ttys001"}, True),
+            ({"TEST_KEYCHAIN_LOCKED": "1"}, False),
+        )
+        for env, queried in cases:
+            with self.subTest(env=env):
+                self.events.unlink(missing_ok=True)
+                result = self.run_updater("check", SIGNING_IDENTITY="", **env)
+                self.assertEqual(result.returncode, 101, result.stderr)
+                self.assertEqual(result.stdout, "[Setup] setup-dagu 0.0.0.0 8040\n[Setup] setup-dagu 127.0.0.1 8040\n")
+                self.assertEqual("security:show-keychain-info" in self.log(), queried)
 
     def test_check_current_and_newer_versions(self):
         for version in (LATEST, "v3.0.0"):

@@ -23,6 +23,7 @@ plist=$HOME/Library/LaunchAgents/$label.plist
 log_dir=$HOME/Library/Logs/Dagu
 service_domain=gui/$(id -u)
 service_target=$service_domain/$label
+login_keychain=$HOME/Library/Keychains/login.keychain-db
 
 # ── 실행 상태 ────────────────────────────────────────────────────────
 
@@ -339,6 +340,17 @@ ensure_launchagent() {
     fail "Dagu did not stay running. Check the logs: $log_dir"
 }
 
+# SSH 세션에서 로그인 키체인이 잠겨 있으면 서명 전에 키체인을 여는 명령을 안내한다.
+# SSH 세션은 암호를 물을 화면이 없어서, 잠긴 키체인으로는 codesign이 errSecInternalComponent로 실패한다.
+# show-keychain-info는 잠긴 키체인에서 실패하므로 잠금 여부 확인에 쓴다.
+# 화면 로그인 세션에서는 이 조회가 잠금 해제 창을 띄울 수 있어 SSH 세션에서만 확인한다.
+print_unlock_keychain() {
+    [[ -n ${SSH_CONNECTION:-} || -n ${SSH_TTY:-} ]] || return 0
+    if ! security show-keychain-info "$login_keychain" >/dev/null 2>&1; then
+        echo '[Unlock keychain] security unlock-keychain ~/Library/Keychains/login.keychain-db'
+    fi
+}
+
 # 되돌리기에 필요하므로 시작 시점의 서비스 등록 여부를 기록한다.
 record_service_state() {
     if launchctl print "$service_target" >/dev/null 2>&1; then
@@ -354,6 +366,7 @@ cmd_check() {
 
     # 미설치: 설치 명령을 안내한다.
     if ! is_installed; then
+        print_unlock_keychain
         printf '[Setup] setup-dagu 0.0.0.0 8040\n[Setup] setup-dagu 127.0.0.1 8040\n'
         exit "$EXIT_NOT_INSTALLED"
     fi
@@ -364,6 +377,7 @@ cmd_check() {
     current=$(read_version "$dagu")
     read_latest
     if version_is_newer "$latest" "$current"; then
+        print_unlock_keychain
         printf '[Update %s → %s] update-dagu\n' "$current" "$latest"
         exit "$EXIT_UPDATE_AVAILABLE"
     fi
