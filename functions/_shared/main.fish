@@ -2,7 +2,7 @@
 
 # stdin의 각 줄에 색을 입혀 출력한다.
 #   "[Action] command"            → 실행할 수 있는 명령 안내. 대괄호 부분을 강조한다.
-#   "Name - up to date ..."       → 최신 상태. 상태 문구를 강조한다.
+#   "Name - up to date ..."       → 최신 상태. 상태 문구를 강조한다. 유효한 인증서의 "Name - valid ..."도 같다.
 #   그 외                          → 그대로 출력한다.
 function _computing_setup_format
     set -l action_color ''
@@ -21,7 +21,7 @@ function _computing_setup_format
             continue
         end
 
-        set -l current (string match --regex '^(.+ - )(up to date|newer than latest)(.*)$' -- "$line")
+        set -l current (string match --regex '^(.+ - )(up to date|newer than latest|valid)(.*)$' -- "$line")
         if test (count $current) -ge 3
             printf '%s%s%s%s%s\n' "$current[2]" "$status_color" "$current[3]" "$reset" "$current[4]"
         else

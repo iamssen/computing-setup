@@ -11,6 +11,35 @@ import unittest
 
 
 REPO = Path(__file__).resolve().parents[3]
+IDENTITY = "A" * 40
+
+# 키체인 목록을 흉내 낸다. 인증서 본문 자리에는 가짜 openssl이 읽을 남은 날수를 둔다.
+FAKE_SECURITY = '''#!/usr/bin/python3
+import os, sys
+assert sys.argv[1:] == ["find-certificate", "-a", "-Z", "-p"], sys.argv
+for sha1, days in (("C" * 40, "1"), ("A" * 40, os.environ["TEST_SIGNING_DAYS"])):
+    print("SHA-256 hash: " + "0" * 64)
+    print("SHA-1 hash: " + sha1)
+    print("-----BEGIN CERTIFICATE-----")
+    print("days=" + days)
+    print("-----END CERTIFICATE-----")
+'''
+
+# stdin의 "days=N" 줄을 읽어, 지금부터 N일 뒤에 만료되는 인증서처럼 답한다.
+FAKE_OPENSSL = '''#!/usr/bin/python3
+import re, sys, time
+assert sys.argv[1:] == ["x509", "-noout", "-enddate"], sys.argv
+found = re.search(r"^days=(-?\\d+)$", sys.stdin.read(), re.MULTILINE)
+if not found:
+    sys.exit(1)
+# 한 시간을 더해, 실행 중에 시간이 흘러도 남은 날수가 N으로 계산되게 한다.
+end = time.gmtime(time.time() + int(found.group(1)) * 86400 + 3600)
+print("notAfter=" + time.strftime("%b ", end) + "%2d" % end.tm_mday + time.strftime(" %H:%M:%S %Y GMT", end))
+'''
+
+
+def certificate(days):
+    return "-----BEGIN CERTIFICATE-----\ndays=" + str(days) + "\n-----END CERTIFICATE-----\n"
 
 
 @unittest.skipUnless(shutil.which("fish"), "Fish is required")
@@ -20,9 +49,16 @@ class ComputingSetupTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.events = self.root / "events"
+        self.certificates = self.root / "certificates"
+        self.certificates.mkdir()
+        # 실제 키체인과 ~/Certifications를 읽지 않도록, 기본값은 서명 인증서 미설정과 빈 디렉토리로 둔다.
         self.env = dict(os.environ, PATH=str(self.root) + ":/usr/bin:/bin:/usr/sbin:/sbin",
                         TEST_EVENTS=str(self.events), NO_COLOR="1",
-                        XDG_CONFIG_HOME=str(self.root / "config"))
+                        XDG_CONFIG_HOME=str(self.root / "config"),
+                        SIGNING_IDENTITY="", COMPUTING_SETUP_CERTIFICATES_DIR=str(self.certificates))
+        for name, body in (("security", FAKE_SECURITY), ("openssl", FAKE_OPENSSL)):
+            (self.root / name).write_text(body)
+            (self.root / name).chmod(0o755)
         for name, body in {
             "brew": '''
                 assert args == ["outdated", "--verbose"], args
@@ -85,6 +121,8 @@ with open(os.environ["TEST_EVENTS"], "a") as events:
         self.assertIn("[Setup] setup-dagu 127.0.0.1 8040", result.stdout)
         self.assertEqual(self.log().splitlines(), ["brew:outdated --verbose", "rustup:check", "npm:outdated --global --json"])
         self.assertEqual(list((self.root / "config").glob("fish/conf.d/*")), [])
+        self.assertIn("[6/6] Certificates", result.stdout)
+        self.assertIn("SIGNING_IDENTITY is not set.", result.stdout)
 
     def test_one_failed_check_does_not_skip_remaining_sections(self):
         env = dict(self.env, TEST_NODE_STATUS="1")
@@ -104,6 +142,53 @@ with open(os.environ["TEST_EVENTS"], "a") as events:
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("npm - up to date", result.stdout)
         self.assertNotIn("[Update] npm-check -gu", result.stdout)
+
+    def test_valid_certificates_need_no_renewal(self):
+        (self.certificates / "localhost.pem").write_text(certificate(400))
+        (self.certificates / "localhost-key.pem").write_text("-----BEGIN PRIVATE KEY-----\n")
+        # 지문은 소문자로 설정해도 키체인의 대문자 지문과 일치해야 한다.
+        result = self.run_check("_computing_setup_check_certificates",
+                                SIGNING_IDENTITY=IDENTITY.lower(), TEST_SIGNING_DAYS="200")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("Signing certificate - valid: 200 days left", result.stdout)
+        self.assertIn("localhost.pem - valid: 400 days left", result.stdout)
+        self.assertNotIn("localhost-key.pem", result.stdout + result.stderr)
+        self.assertNotIn("[Renew]", result.stdout)
+
+    def test_expiring_certificates_point_to_the_renewal_documents(self):
+        (self.certificates / "localhost.pem").write_text(certificate(30))
+        (self.certificates / "rootCA.pem").write_text(certificate(-3))
+        result = self.run_check("_computing_setup_check_certificates",
+                                SIGNING_IDENTITY=IDENTITY, TEST_SIGNING_DAYS="10")
+        self.assertEqual(result.returncode, 100, result.stdout + result.stderr)
+        self.assertIn("Signing certificate - expiring: 10 days left", result.stdout)
+        self.assertIn("localhost.pem - expiring: 30 days left", result.stdout)
+        self.assertIn("rootCA.pem - expired: ", result.stdout)
+        # mkcert 인증서가 여럿이어도 문서는 한 번만 안내한다.
+        renewals = [line for line in result.stdout.splitlines() if "[Renew] open " in line]
+        self.assertEqual(len(renewals), 2, result.stdout)
+        self.assertIn("애플 개발자 인증서.md", renewals[0])
+        self.assertIn("mkcert.md", renewals[1])
+
+    def test_certificate_a_month_away_is_still_valid(self):
+        (self.certificates / "localhost.pem").write_text(certificate(31))
+        result = self.run_check("_computing_setup_check_certificates")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("localhost.pem - valid: 31 days left", result.stdout)
+
+    def test_missing_signing_certificate_fails_after_checking_the_rest(self):
+        (self.certificates / "localhost.pem").write_text(certificate(400))
+        result = self.run_check("_computing_setup_check_certificates",
+                                SIGNING_IDENTITY="B" * 40, TEST_SIGNING_DAYS="200")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("signing certificate was not found", result.stderr)
+        self.assertIn("localhost.pem - valid: 400 days left", result.stdout)
+
+    def test_unreadable_certificate_fails(self):
+        (self.certificates / "broken.pem").write_text("-----BEGIN CERTIFICATE-----\n")
+        result = self.run_check("_computing_setup_check_certificates")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("Failed to read the certificate", result.stderr)
 
 
 if __name__ == "__main__":

@@ -20,6 +20,7 @@ functions/
 
 - 이 저장소가 설치를 관리하는 도구만 자기 모듈(`functions/<도구>/`)과 `check-<도구>-update` 명령을 갖는다.
 - brew, rustup, npm처럼 상태만 보여주는 외부 도구는 `computing-setup/main.fish` 안의 비공개 함수 `_computing_setup_check_<도구>`로 둔다.
+  인증서 만료 점검(`_computing_setup_check_certificates`)도 여기에 둔다.
 - `computing-setup`에 섹션을 추가하려면 `computing-setup` 함수의 `titles`와 `checks` 목록에 한 줄씩 더한다. 번호는 자동으로 매겨진다.
 
 ## fish와 bash의 역할
@@ -60,7 +61,7 @@ functions/
 | `0` | 성공. 점검에서는 최신 상태 |
 | `1` | 실패 |
 | `2` | 인자 오류 |
-| `100` | 점검 결과 업데이트가 있다 (`EXIT_UPDATE_AVAILABLE`) |
+| `100` | 점검 결과 업데이트나 갱신할 인증서가 있다 (`EXIT_UPDATE_AVAILABLE`) |
 | `101` | 점검 결과 설치되어 있지 않다 (`EXIT_NOT_INSTALLED`) |
 
 `100`과 `101`은 점검 명령(`check-*`, `_computing_setup_check_*`)만 쓴다.
@@ -68,10 +69,11 @@ functions/
 
 ## 점검 출력
 
-`_computing_setup_format`이 아래 두 형식에 색을 입힌다. 문구를 바꾸면 색이 빠진다.
+`_computing_setup_format`이 아래 형식들에 색을 입힌다. 문구를 바꾸면 색이 빠진다.
 
 - `[Update v1.0.0 → v1.1.0] update-dagu`: 대괄호 안에 할 일, 그 뒤에 실행할 명령
 - `Dagu - up to date: v1.1.0` 또는 `Dagu - newer than latest: v1.2.0`
+- `rootCA.pem - valid: 3507 days left (2036-06-21)`: 유효한 인증서
 
 ## 주석과 메시지
 
@@ -89,6 +91,7 @@ for dir in functions/*/tests; python3 -m unittest discover -s $dir; or break; en
 
 - 코드를 고친 뒤에는 위 명령과 `fish_indent --check`, `bash -n`을 통과시킨다.
 - 테스트는 네트워크와 시스템을 건드리지 않는다. `curl`, `sudo`, `launchctl` 같은 외부 명령은 `PATH` 앞에 둔 가짜 명령으로 바꾼다.
-- 설치 경로는 스크립트를 고쳐 쓰지 않고 환경 변수로 바꾼다(`COMPUTING_SETUP_NODE_BIN`, `COMPUTING_SETUP_DAGU_BIN`). 이 변수들은 테스트 전용이다.
+- 설치 경로와 인증서 디렉토리는 스크립트를 고쳐 쓰지 않고 환경 변수로 바꾼다
+  (`COMPUTING_SETUP_NODE_BIN`, `COMPUTING_SETUP_DAGU_BIN`, `COMPUTING_SETUP_CERTIFICATES_DIR`). 이 변수들은 테스트 전용이다.
 - fish 명령은 `functions.fish`를 source해서 테스트한다. 모듈의 `main.fish`만 따로 source하면 `_shared`의 헬퍼가 없어 실패한다.
 - `fish -c`는 대화형이 아니라서 로더가 `conf.d`를 건드리지 않는다. 링크 동작을 테스트할 때만 `--interactive`와 임시 `XDG_CONFIG_HOME`을 함께 쓴다.

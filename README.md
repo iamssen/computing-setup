@@ -17,7 +17,7 @@ source functions.fish
 
 | 명령 | 하는 일 |
 | --- | --- |
-| `computing-setup` | 설치·업데이트 상태를 점검하고 실행할 명령을 안내한다. 아무것도 변경하지 않는다 |
+| `computing-setup` | 설치·업데이트 상태와 인증서 만료일을 점검하고 실행할 명령을 안내한다. 아무것도 변경하지 않는다 |
 | `check-node-update` | Node.js 업데이트를 확인한다 |
 | `install-node <release-directory>` | Node.js 공식 pkg를 설치한다 (예: `latest`, `latest-v26.x`, `v26.3.0`) |
 | `check-dagu-update` | Dagu 업데이트를 확인한다 |
@@ -30,13 +30,16 @@ source functions.fish
 
 | 변수 | 쓰는 명령 |
 | --- | --- |
-| `SIGNING_IDENTITY` | `setup-dagu`, `update-dagu`. 서명 인증서의 SHA-1 지문 |
+| `SIGNING_IDENTITY` | `setup-dagu`, `update-dagu`, `computing-setup`. 서명 인증서의 SHA-1 지문 |
 | `PUSHOVER_USER` | `pushover` |
 | `PUSHOVER_CHANNEL_<대문자 채널>` | `pushover <채널>`. 채널별 앱 토큰 |
 
 SSH 세션에서 로그인 키체인이 잠겨 있으면 `setup-dagu`, `update-dagu`의 서명이 `errSecInternalComponent`로 실패한다.
 그래서 SSH 세션에서 키체인이 잠겨 있으면 `computing-setup`과 `check-dagu-update`가 먼저
 `security unlock-keychain ~/Library/Keychains/login.keychain-db`를 실행하라고 안내한다.
+
+`computing-setup`의 Certificates 섹션은 `SIGNING_IDENTITY`의 코드 서명 인증서와 `~/Certifications/*.pem`(mkcert 인증서,
+`rootCA.pem`)이 만료되기까지 남은 날을 보여준다. 30일 이하로 남았거나 만료되었으면 갱신 방법을 적은 문서를 여는 명령을 안내한다.
 
 ## CodexBar hook
 
