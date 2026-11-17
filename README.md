@@ -47,4 +47,8 @@ SSH 세션에서 로그인 키체인이 잠겨 있으면 `setup-dagu`, `update-d
 `pushover system "<메시지>"`로 보낸다. CodexBar의 Settings > Hooks에서 규칙을 만들고 executable에 이 파일의
 절대 경로를 넣는다. arguments는 비워 두고, 제한 시간은 30초로 둔다.
 
+`quota_reset`은 그 창(session, weekly)에서 `quota_low`나 `quota_reached`가 먼저 왔을 때만 보낸다.
+`quota_low`는 알림 없이 `~/.local/state/computing-setup/codexbar/`에 표시만 남기므로, `quota_low` 규칙도 함께 만든다.
+`quota_low`의 threshold는 사용한 비율(0~1)이다. 비워 두면 CodexBar 알림 설정의 남은 사용량 기준(기본 50%, 20%)을 쓴다.
+
 세팅 순서와 배경은 [기기 세팅.md](기기%20세팅.md)와 [구현 기술 상세](구현%20기술%20상세/)에 있다.
